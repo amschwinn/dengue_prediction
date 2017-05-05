@@ -17,17 +17,15 @@
 library(reticulate)
 library(devtools)
 
-#Use dev_mode to create and install tensorflow package
-dev_mode(on=T)
+#Use devtools to create and install tensorflow package
 devtools::install_github("rstudio/tensorflow")
 
 #Supported by anaconda virtual environment of tensorflow
 use_condaenv('tensorflow', conda = "auto", required = TRUE)
-library(tensorflow)
-dev_mode(on=F)
 
 #Veryifying the installation
 library(tensorflow)
 sess = tf$Session()
 hello <- tf$constant('Hello, TensorFlow!')
 sess$run(hello)
+

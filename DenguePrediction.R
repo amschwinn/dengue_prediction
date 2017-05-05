@@ -7,6 +7,10 @@
 #install.packages('rstudioapi')
 library(rstudioapi)
 
+#Before moving forward, please open, read, and run
+#the TensorFlow_R_Integration file
+library(tensorflow)
+
 #Set working directory
 setwd(dirname(rstudioapi::getActiveDocumentContext()$path))
 
