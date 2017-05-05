@@ -19,32 +19,39 @@ features    <- read.csv('dengue_features_train.csv')
 labels      <- read.csv('dengue_labels_train.csv')
 submission  <- read.csv('dengue_features_test.csv')
 
+#Create feature DF with 2 weeks features
+w2_features <- features
+
 #prepare new columns and names
 names <- colnames(features[,5:ncol(features)-2])
 for(i in 1:length(names))
 {
   names[i] <- paste(names[i],'prev',sep="_")
 }
-features[,c(names)] <- NA
+w2_features[,c(names)] <- NA
 
 #Add previous week's features
-for(i in 2:nrow(features))
+for(i in 2:nrow(w2_features))
 {
-  if(features$city[i]==features$city[i-1] &
-     ((as.Date(features$week_start_date[i])
-      -as.Date(features$week_start_date[i-1]))<10))
+  if(w2_features$city[i]==w2_features$city[i-1] &
+     ((as.Date(w2_features$week_start_date[i])
+      -as.Date(w2_features$week_start_date[i-1]))<10))
   {
-    features[i,25:44] <- features[i-1,5:24]   
+    w2_features[i,25:44] <- w2_features[i-1,5:24]   
   }
 }
 
 #Combine features and labels
-features$total_cases <- labels$total_cases
+features$total_cases    <- labels$total_cases
+w2_features$total_cases <- labels$total_cases
 
 #remove rows with missing data
-features <- features[complete.cases(features),]
-rownames(features) <- NULL
-#looks like we lose about 1/3 of observations
+features              <- features[complete.cases(features),]
+rownames(features)    <- NULL
+w2_features           <- w2_features[complete.cases(w2_features),]
+rownames(w2_features) <- NULL
+#looks like we lose about 115 observations in the original feature set
+#and close to 1/3 of the observations in w2_features
 #This could be a problem if we don't have enought
 #obvservations for our dimensionality, but we will
 #examine this further later
@@ -53,3 +60,25 @@ rownames(features) <- NULL
 sj <- features[features$city=='sj',]
 iq <- features[features$city=='iq',]
 
+
+
+###################
+##Playground
+
+#Exploring the number of continuous dates
+features$check <- NA
+
+for(i in 2:nrow(features))
+{
+  if(features$city[i]==features$city[i-1] &
+     ((as.Date(features$week_start_date[i])
+       -as.Date(features$week_start_date[i-1]))<10))
+  {
+    features$check[i] <- TRUE  
+  }
+  else
+  {
+    features$check[i] <- FALSE
+  }
+}
+summary(features)
