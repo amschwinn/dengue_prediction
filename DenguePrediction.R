@@ -56,10 +56,38 @@ rownames(w2_features) <- NULL
 #obvservations for our dimensionality, but we will
 #examine this further later
 
+#Split into batches
+features$batch    <- NA
+x                 <- 1
+features$batch[1] <- x
+
+for(i in 2:nrow(features))
+{
+  if(features$city[i]==features$city[i-1] &
+     ((as.Date(features$week_start_date[i])
+       -as.Date(features$week_start_date[i-1]))<10))
+  {
+    features$batch[i] <- x  
+  }
+  else
+  {
+    x <- x+1
+    features$batch[i] <- x  
+  }
+}
+
 #Break into 2 datasets by location
 sj <- features[features$city=='sj',]
 iq <- features[features$city=='iq',]
 
+cities[1]
+
+
+###############
+## Explore the data
+attributes(sj)
+summary(sj)
+pairs(sj[5:ncol(sj)])
 
 
 ###################
