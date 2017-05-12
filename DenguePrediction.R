@@ -24,19 +24,16 @@ w2_features <- features
 
 #prepare new columns and names
 names <- colnames(features[,5:ncol(features)-2])
-for(i in 1:length(names))
-{
+for(i in 1:length(names)){
   names[i] <- paste(names[i],'prev',sep="_")
 }
 w2_features[,c(names)] <- NA
 
 #Add previous week's features
-for(i in 2:nrow(w2_features))
-{
+for(i in 2:nrow(w2_features)){
   if(w2_features$city[i]==w2_features$city[i-1] &
      ((as.Date(w2_features$week_start_date[i])
-      -as.Date(w2_features$week_start_date[i-1]))<10))
-  {
+      -as.Date(w2_features$week_start_date[i-1]))<10)){
     w2_features[i,25:44] <- w2_features[i-1,5:24]   
   }
 }
@@ -56,31 +53,39 @@ rownames(w2_features) <- NULL
 #obvservations for our dimensionality, but we will
 #examine this further later
 
-#Split into batches
-features$batch    <- NA
-x                 <- 1
-features$batch[1] <- x
-
-for(i in 2:nrow(features))
-{
-  if(features$city[i]==features$city[i-1] &
-     ((as.Date(features$week_start_date[i])
-       -as.Date(features$week_start_date[i-1]))<10))
-  {
-    features$batch[i] <- x  
-  }
-  else
-  {
-    x <- x+1
-    features$batch[i] <- x  
-  }
-}
-
 #Break into 2 datasets by location
 sj <- features[features$city=='sj',]
 iq <- features[features$city=='iq',]
 
-cities[1]
+#List of city DFs so don't have to duplicate steps
+cities <- list(sj,iq)
+
+#Split into batches
+for(j in 1:length(cities)){
+  df          <- cities[[j]]
+  df$batch    <- NA
+  x           <- 1
+  df$batch[1] <- x
+  for(i in 2:nrow(df)){
+    if(df$city[i]==df$city[i-1] &
+       ((as.Date(df$week_start_date[i])
+         -as.Date(df$week_start_date[i-1]))<10)){
+      df$batch[i] <- x  
+    }
+    else{
+      x <- x+1
+      df$batch[i] <- x  
+    }
+  }
+  if(j==1){
+    sj          <- df
+    cities[[j]] <- sj
+  }
+  if(j==2){
+    iq          <- df
+    cities[[j]] <- iq
+  }
+}
 
 
 ###############
