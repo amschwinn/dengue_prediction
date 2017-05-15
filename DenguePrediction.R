@@ -5,7 +5,11 @@
 #outbreaks in Puerto Rico and Peru
 ##############################################
 #install.packages('rstudioapi')
+#install.packages('kerasR')
+#install.packages('neuralnet')
 library(rstudioapi)
+library(kerasR)
+library(neuralnet)
 
 #Before moving forward, please open, read, and run
 #the TensorFlow_R_Integration file
@@ -19,39 +23,14 @@ features    <- read.csv('dengue_features_train.csv')
 labels      <- read.csv('dengue_labels_train.csv')
 submission  <- read.csv('dengue_features_test.csv')
 
-#Create feature DF with 2 weeks features
-w2_features <- features
-
-#prepare new columns and names
-names <- colnames(features[,5:ncol(features)-2])
-for(i in 1:length(names)){
-  names[i] <- paste(names[i],'prev',sep="_")
-}
-w2_features[,c(names)] <- NA
-
-#Add previous week's features
-for(i in 2:nrow(w2_features)){
-  if(w2_features$city[i]==w2_features$city[i-1] &
-     ((as.Date(w2_features$week_start_date[i])
-      -as.Date(w2_features$week_start_date[i-1]))<10)){
-    w2_features[i,25:44] <- w2_features[i-1,5:24]   
-  }
-}
 
 #Combine features and labels
 features$total_cases    <- labels$total_cases
-w2_features$total_cases <- labels$total_cases
 
 #remove rows with missing data
 features              <- features[complete.cases(features),]
 rownames(features)    <- NULL
-w2_features           <- w2_features[complete.cases(w2_features),]
-rownames(w2_features) <- NULL
 #looks like we lose about 115 observations in the original feature set
-#and close to 1/3 of the observations in w2_features
-#This could be a problem if we don't have enought
-#obvservations for our dimensionality, but we will
-#examine this further later
 
 #Break into 2 datasets by location
 sj <- features[features$city=='sj',]
@@ -87,31 +66,83 @@ for(j in 1:length(cities)){
   }
 }
 
-
-###############
-## Explore the data
-attributes(sj)
-summary(sj)
-pairs(sj[5:ncol(sj)])
-
-
-###################
-##Playground
-
-#Exploring the number of continuous dates
-features$check <- NA
-
-for(i in 2:nrow(features))
-{
-  if(features$city[i]==features$city[i-1] &
-     ((as.Date(features$week_start_date[i])
-       -as.Date(features$week_start_date[i-1]))<10))
-  {
-    features$check[i] <- TRUE  
+#Normalize the data
+for(i in 1:length(cities)){
+  df      <- cities[[i]]
+  df_max  <- apply(df[,5:(ncol(df)-1)],2,max)
+  df_min  <- apply(df[,5:(ncol(df)-1)],2,min)
+  df_norm <- as.data.frame(cbind(df[,1:4],scale(df[,5:(ncol(df)-1)], center=df_min,
+                                        scale=df_max-df_min),df[,ncol(df)]))
+  names(df_norm) <- names(df)
+  if(i==1){
+    sj_norm <- df_norm
   }
-  else
-  {
-    features$check[i] <- FALSE
+  if(i==2){
+    iq_norm <- df_norm
   }
 }
-summary(features)
+
+#Split batches into train and test
+set.seed(1991)
+split_size  <- .75
+sj_index    <- sample(seq_len(max(sj$batch)), size=(split_size*max(sj$batch)))
+iq_index    <- sample(seq_len(max(iq$batch)), size=(split_size*max(iq$batch)))
+sj_train    <- sj_norm[sj$batch %in% sj_index,-c(1:4)]
+sj_test     <- sj_norm[!(sj$batch %in% sj_index),-c(1:4)]
+iq_train    <- iq_norm[iq$batch %in% iq_index,-c(1:4)]
+iq_test     <- iq_norm[!(iq$batch %in% iq_index),-c(1:4)]
+
+###############
+##Standard Neural Net
+#Uses the following tutorial:
+#https://www.r-bloggers.com/fitting-a-neural-network-in-r-neuralnet-package/
+
+#Create target equation
+feat_names  <- names(sj_train[1:(ncol(sj_train)-2)])
+equation    <- as.formula(paste("total_cases~",paste(feat_names, collapse="+")))
+
+#Neural net regression
+sj_nn <- neuralnet(equation,data=sj_train[1:(ncol(sj_train)-1)],
+                hidden=c(12,7,4,3),linear.output=TRUE,rep=500)
+iq_nn <- neuralnet(equation,data=iq_train[1:(ncol(sj_train)-1)],
+                   hidden=c(12,7,4,3),linear.output=TRUE,rep=500)
+
+#Predict from fitted NN model
+pr.sj_nn      <- compute(sj_nn,sj_test[,1:(ncol(sj_test)-2)])
+sj_nn_result  <- pr.sj_nn$net.result*(max(sj$total_cases)
+                                       -min(sj$total_cases))+min(sj$total_cases)
+sj_test_pred  <- sj_test$total_cases*(max(sj$total_cases)
+                                      -min(sj$total_cases))+min(sj$total_cases)
+
+#MSE of NN model
+sum((sj_test_pred-sj_nn_result)^2)/nrow(sj_test)
+
+
+##############
+## Further development
+#Create feature DF with 2 weeks features
+w2_features <- features
+
+#prepare new columns and names
+names <- colnames(features[,5:ncol(features)-2])
+for(i in 1:length(names)){
+  names[i] <- paste(names[i],'prev',sep="_")
+}
+w2_features[,c(names)] <- NA
+
+#Add previous week's features
+for(i in 2:nrow(w2_features)){
+  if(w2_features$city[i]==w2_features$city[i-1] &
+     ((as.Date(w2_features$week_start_date[i])
+       -as.Date(w2_features$week_start_date[i-1]))<10)){
+    w2_features[i,25:44] <- w2_features[i-1,5:24]   
+  }
+}
+
+#Combine features and labels
+w2_features$total_cases <- labels$total_cases
+
+#remove rows with missing data
+w2_features           <- w2_features[complete.cases(w2_features),]
+rownames(w2_features) <- NULL
+
