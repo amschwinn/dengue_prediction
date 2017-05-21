@@ -1,4 +1,4 @@
-##############################################
+f##############################################
 #By: Austin Schwinn
 #Date: April 26, 2017
 #Subject: Predicting mosquito cause dengue
@@ -26,6 +26,9 @@ submission  <- read.csv('dengue_features_test.csv')
 
 #Combine features and labels
 features$total_cases    <- labels$total_cases
+
+#Create feature DF with 2 weeks features
+w2_features <- features
 
 #remove rows with missing data
 features              <- features[complete.cases(features),]
@@ -66,6 +69,51 @@ for(j in 1:length(cities)){
   }
 }
 
+
+##############
+## 2 weeks of features
+
+#prepare new columns and names
+names <- colnames(features[,5:ncol(features)-2])
+for(i in 1:length(names)){
+  names[i] <- paste(names[i],'prev',sep="_")
+}
+w2_features[,c(names)] <- NA
+
+#Add previous week's features
+for(i in 2:nrow(w2_features)){
+  if(w2_features$city[i]==w2_features$city[i-1] &
+     ((as.Date(w2_features$week_start_date[i])
+       -as.Date(w2_features$week_start_date[i-1]))<10)){
+    w2_features[i,25:44] <- w2_features[i-1,5:24]   
+  }
+}
+
+#Combine features and labels
+w2_features$total_cases <- labels$total_cases
+
+#remove rows with missing data
+w2_features           <- w2_features[complete.cases(w2_features),]
+rownames(w2_features) <- NULL
+
+
+#Break into 2 datasets by location
+w2_sj <- w2_features[w2_features$city=='sj',]
+w2_iq <- w2_features[w2_features$city=='iq',]
+
+
+# Export working DF's to use in Tensorflow in Python
+write.csv(iq, "iq_features")
+write.csv(sj, "sj_features")
+write.csv(w2_iq, "w2_iq_features")
+write.csv(w2_sj, "w2_sj_features")
+
+
+
+
+######################
+## Modelinng
+
 #Normalize the data
 for(i in 1:length(cities)){
   df      <- cities[[i]]
@@ -103,9 +151,9 @@ equation    <- as.formula(paste("total_cases~",paste(feat_names, collapse="+")))
 
 #Neural net regression
 sj_nn <- neuralnet(equation,data=sj_train[1:(ncol(sj_train)-1)],
-                hidden=c(12,7,4,3),linear.output=TRUE,rep=500)
+                hidden=c(12,7,4,3),linear.output=TRUE)
 iq_nn <- neuralnet(equation,data=iq_train[1:(ncol(sj_train)-1)],
-                   hidden=c(12,7,4,3),linear.output=TRUE,rep=500)
+                   hidden=c(12,7,4,3),linear.output=TRUE)
 
 #Predict from fitted NN model
 pr.sj_nn      <- compute(sj_nn,sj_test[,1:(ncol(sj_test)-2)])
@@ -116,6 +164,18 @@ sj_test_pred  <- sj_test$total_cases*(max(sj$total_cases)
 
 #MSE of NN model
 sum((sj_test_pred-sj_nn_result)^2)/nrow(sj_test)
+
+
+##############
+## Tensorflow linear model w/ deep learning
+
+#Create feature columns for the model
+feat_col <- names(features[,5:ncol(features)])
+
+for(i in 1:length(feat_col)){
+  assign(feat_col[i],tf$contrib$layers$real_valued_column(feat_col[i]))
+}
+
 
 
 ##############
