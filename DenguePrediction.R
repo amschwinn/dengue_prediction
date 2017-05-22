@@ -30,6 +30,8 @@ features$total_cases    <- labels$total_cases
 #Create feature DF with 2 weeks features
 w2_features <- features
 
+features2 <- features
+
 #remove rows with missing data
 features              <- features[complete.cases(features),]
 rownames(features)    <- NULL
@@ -69,16 +71,19 @@ for(j in 1:length(cities)){
   }
 }
 
-
 ##############
 ## 2 weeks of features
 
 #prepare new columns and names
-names <- colnames(features[,5:ncol(features)-2])
-for(i in 1:length(names)){
-  names[i] <- paste(names[i],'prev',sep="_")
+feat_names <- colnames(w2_features[,5:(ncol(w2_features)-1)])
+for(i in 1:length(feat_names)){
+  feat_names[i] <- paste(feat_names[i],'prev',sep="_")
 }
-w2_features[,c(names)] <- NA
+w2_features[,c(feat_names)] <- NA
+
+#move total cases column to the end
+tot_index <- grep("total_cases", names(w2_features))
+w2_features <- w2_features[,c((1:ncol(w2_features))[-tot_index],tot_index)]
 
 #Add previous week's features
 for(i in 2:nrow(w2_features)){
@@ -88,9 +93,6 @@ for(i in 2:nrow(w2_features)){
     w2_features[i,25:44] <- w2_features[i-1,5:24]   
   }
 }
-
-#Combine features and labels
-w2_features$total_cases <- labels$total_cases
 
 #remove rows with missing data
 w2_features           <- w2_features[complete.cases(w2_features),]
