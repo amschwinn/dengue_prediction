@@ -105,10 +105,10 @@ w2_iq <- w2_features[w2_features$city=='iq',]
 
 
 # Export working DF's to use in Tensorflow in Python
-write.csv(iq, "iq_features")
-write.csv(sj, "sj_features")
-write.csv(w2_iq, "w2_iq_features")
-write.csv(w2_sj, "w2_sj_features")
+write.csv(iq, "iq_features.csv")
+write.csv(sj, "sj_features.csv")
+write.csv(w2_iq, "w2_iq_features.csv")
+write.csv(w2_sj, "w2_sj_features.csv")
 
 
 
