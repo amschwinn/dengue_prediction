@@ -30,42 +30,44 @@ cities = [sj,iq,w2_sj,w2_iq]
 #Remove R cols
 for i in cities:
     del i[i.columns[0]]
-
+    
 #%%
-#Create tensors for each feature column
+#List of feature columns
 features = sj.drop(sj.columns[(len(sj.columns)-2):(len(sj.columns))],
                    axis=1).drop(sj.columns[0:4],axis=1)
 features = [i for i in features]
-tensors = {}
-for i in features:
-    tensors[i] = tf.contrib.layers.real_valued_column(i)
 
-#Now the same for the 2 week look back
 w2_features = w2_sj.drop(w2_sj.columns[(len(w2_sj.columns)-1)],
                          axis=1).drop(w2_sj.columns[0:4],axis=1)
 w2_features = [i for i in w2_features]
-w2_tensors = {}
+    
+    
+#%%
+#Feature Normalization
+for i in features:
+    sj[i] = (sj[i] - sj[i].mean())/sj[i].std(ddof=0)
+    iq[i] = (iq[i] - iq[i].mean())/iq[i].std(ddof=0) 
+    
 for i in w2_features:
-    w2_tensors[i] = tf.contrib.layers.real_valued_column(i)
-
-#Prediction value
-label = ["total_cases"]    
+    w2_sj[i] = (w2_sj[i] - w2_sj[i].mean())/w2_sj[i].std(ddof=0)
+    w2_iq[i] = (w2_iq[i] - w2_iq[i].mean())/w2_iq[i].std(ddof=0)
 
 #%%
-#Create input functions
-def input_fun(data_set):
-    feature_cols = {k: tf.constant(data_set[k].values)
-        for k in features}
-    labels = tf.constant(data_set[label].values)
-    return feature_cols, labels
+#Label normalization
+norm_vars = {}
+for i in range(len(cities)):
+    df = cities[i]
+    if i < 2:
+        pre = df.loc[1,"city"]
+    else:
+        pre = "w2_"+df.loc[1,"city"]
+    mean = df["total_cases"].mean()
+    std = df["total_cases"].std(ddof=0)
+    cities[i]["total_cases"] = (df["total_cases"] - mean)/std
+    norm_vars[(pre+"_mean")] = mean
+    norm_vars[(pre+"_std")] = std
 
-#same for w2
-def w2_input_fun(data_set):
-    w2_feature_cols = {k: tf.constant(data_set[k].values)
-        for k in w2_features}
-    w2_labels = tf.constant(data_set[label].values)
-    return w2_feature_cols, w2_labels
-
+ 
 #%%
 #split into training and test
 np.random.seed(1991)
@@ -86,14 +88,101 @@ w2_sj_train,w2_sj_test=train_test_split(w2_sj,test_size=split)
 #w2 iq
 w2_iq_train,w2_iq_test=train_test_split(w2_iq,test_size=split)
 
+
+#%%
+#Create tensors for each feature column
+w1_feature_cols = [tf.contrib.layers.real_valued_column(k)
+                  for k in features]
+
+#Now the same for the 2 week look back
+w2_feature_cols = [tf.contrib.layers.real_valued_column(k)
+                  for k in w2_features]
+
+#Prediction value
+label = ["total_cases"]    
+
+#%%
+#Create input functions
+def input_fun(data_set):
+    w1_feature_cols = {k: tf.constant(data_set[k].values)
+        for k in features}
+    w1_labels = tf.constant(data_set[label].values)
+    return w1_feature_cols, w1_labels
+
+#same for w2
+def w2_input_fun(data_set):
+    w2_feature_cols = {k: tf.constant(data_set[k].values)
+        for k in w2_features}
+    w2_labels = tf.constant(data_set[label].values)
+    return w2_feature_cols, w2_labels
+
 #%%
 #Create tensorflow graph
-sj_regressor = tf.contrib.learn.DNNRegressor(feature_columns=tensors,
-                                          hidden_units=[20,20],
-                                          model_dir="C:/Users/schwi/Google Drive/Data Projects/Dengue Prediction/Github")
+sj_regressor = tf.contrib.learn.DNNRegressor(feature_columns=w1_feature_cols,
+    hidden_units=[20,20], optimizer=tf.train.FtrlOptimizer(
+    learning_rate=0.1,l1_regularization_strength=1.0,
+    l2_regularization_strength=1.0),
+    model_dir=
+    "C:/Users/schwi/Google Drive/Data Projects/Dengue Prediction/models/sj_dnn_reg")
+    
+iq_regressor = tf.contrib.learn.DNNRegressor(feature_columns=w1_feature_cols,
+    hidden_units=[20,20], optimizer=tf.train.FtrlOptimizer(
+    learning_rate=0.1,l1_regularization_strength=1.0,
+    l2_regularization_strength=1.0),
+    model_dir=
+    "C:/Users/schwi/Google Drive/Data Projects/Dengue Prediction/models/iq_dnn_reg")
 
+w2_sj_regressor = tf.contrib.learn.DNNRegressor(feature_columns=w2_feature_cols,
+    hidden_units=[40,40], optimizer=tf.train.FtrlOptimizer(
+    learning_rate=0.1,l1_regularization_strength=1.0,
+    l2_regularization_strength=1.0),
+    model_dir=
+    "C:/Users/schwi/Google Drive/Data Projects/Dengue Prediction/models/w2_sj_dnn_reg")
+
+w2_iq_regressor = tf.contrib.learn.DNNRegressor(feature_columns=w2_feature_cols,
+    hidden_units=[40,40], optimizer=tf.train.FtrlOptimizer(
+    learning_rate=0.1,l1_regularization_strength=1.0,
+    l2_regularization_strength=1.0),
+    model_dir=
+    "C:/Users/schwi/Google Drive/Data Projects/Dengue Prediction/models/w2_iq_dnn_reg")
 #%%
 #Train the regressor NN
 sj_regressor.fit(input_fn=lambda: input_fun(sj_train), steps=5000)
 
+iq_regressor.fit(input_fn=lambda: input_fun(iq_train), steps=5000)
+
+#W2
+w2_sj_regressor.fit(input_fn=lambda: w2_input_fun(w2_sj_train), steps=5000)
+
+w2_iq_regressor.fit(input_fn=lambda: w2_input_fun(w2_iq_train), steps=5000)
+
 #%%
+#Evaluate the models
+sj_ev = sj_regressor.evaluate(input_fn=lambda: input_fun(sj_test), steps=1)
+sj_loss_score = sj_ev["loss"]
+
+iq_ev = iq_regressor.evaluate(input_fn=lambda: input_fun(iq_test), steps=1)
+iq_loss_score = iq_ev["loss"]
+
+w2_sj_ev = w2_sj_regressor.evaluate(input_fn=lambda: w2_input_fun(w2_sj_test), steps=1)
+w2_sj_loss_score = w2_sj_ev["loss"]
+
+w2_iq_ev = w2_iq_regressor.evaluate(input_fn=lambda: w2_input_fun(w2_iq_test), steps=1)
+w2_iq_loss_score = w2_iq_ev["loss"]
+
+
+#See the test loss results
+print("SJ Loss: {0:f}".format(sj_loss_score))
+print("iq Loss: {0:f}".format(iq_loss_score))
+print("W2 SJ Loss: {0:f}".format(w2_sj_loss_score))
+print("W2 iq Loss: {0:f}".format(w2_iq_loss_score))
+#%%
+#Predict from the model
+sj_predict = sj_regressor.predict(input_fn=lambda: input_fun(sj_test))
+# .predict() returns an iterator; convert to a list and print predictions
+sj_predictions = list(itertools.islice(sj_predict, 6))
+print ("Predictions: {}".format(str(sj_predictions)))
+
+
+#%%
+tf.contrib.
