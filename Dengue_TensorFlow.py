@@ -15,6 +15,7 @@ import numpy as np
 import pylab as pl
 import time
 from sklearn.model_selection import train_test_split
+from decimal import *
 
 #set our working directory
 #os.chdir(os.path.dirname('__file__'))
@@ -119,7 +120,7 @@ def w2_input_fun(data_set):
     return w2_feature_cols, w2_labels
 #%%
 #Test for optimal hyperparameters
-
+'''
 #Track how long the loop takes
 start = time.time()
 #Create DF to store results of tests
@@ -127,51 +128,62 @@ results = pd.DataFrame(columns=["lay1","learn_rate","l1","l2","sj_loss","iq_loss
 ind = 0
 
 #Testing loop
+results = pd.DataFrame(columns=["lay1","l1","l2","sj_loss","iq_loss"])
+ind = 0
+
+#Testing loop
 for lay1 in range(1,41):
-    for learn_rate in pl.frange(0.1,1.0,0.1):
-        for l1 in pl.frange(0.0,1.0,0.1):
-            for l2 in pl.frange(0.0,1.0,0.1):                
-                #Insert hyperparameters
-                w2_sj_regressor = tf.contrib.learn.DNNRegressor(
-                    feature_columns=w2_feature_cols, hidden_units=[lay1],
-                    optimizer=tf.train.FtrlOptimizer(learning_rate=learn_rate,
-                    l1_regularization_strength=l1,
-                    l2_regularization_strength=l2),
-                    model_dir=
-                    ("C:/Users/schwi/Google Drive/Data Projects/Dengue " + 
-                     "Prediction/models/w2_sj_dnn_reg/"+str(ind)))
-                w2_iq_regressor = tf.contrib.learn.DNNRegressor(
-                    feature_columns=w2_feature_cols, hidden_units=[lay1],
-                    optimizer=tf.train.FtrlOptimizer(learning_rate=learn_rate,
-                    l1_regularization_strength=l1,
-                    l2_regularization_strength=l2),
-                    model_dir=
-                    ("C:/Users/schwi/Google Drive/Data Projects/Dengue " + 
-                     "Prediction/models/w2_iq_dnn_reg/"+str(ind))) 
-                #Fit the models
-                w2_sj_regressor.fit(input_fn=lambda: w2_input_fun(w2_sj_train),
-                    steps=1000)
-                w2_iq_regressor.fit(input_fn=lambda: w2_input_fun(w2_iq_train), 
-                    steps=1000)
-                #Evalute loss with test
-                w2_sj_ev = w2_sj_regressor.evaluate(input_fn=lambda: 
-                    w2_input_fun(w2_sj_test), steps=1)
-                sj_loss = w2_sj_ev["loss"]
-                
-                w2_iq_ev = w2_iq_regressor.evaluate(input_fn=lambda: 
-                    w2_input_fun(w2_iq_test), steps=1)
-                iq_loss = w2_iq_ev["loss"]
-                #Update results DF and iterators
-                results.loc[ind,:] = [lay1,learn_rate,l1,l2,sj_loss,iq_loss]
-                ind += 1
-                #Display progress
-                print(ind/48400)
+    for l1 in pl.frange(0.0,1.0,0.1):
+        for l2 in pl.frange(0.0,1.0,0.1):                
+            #Insert hyperparameters
+            w2_sj_regressor = tf.contrib.learn.DNNRegressor(
+                feature_columns=w2_feature_cols, hidden_units=[lay1],
+                optimizer=tf.train.FtrlOptimizer(learning_rate=.1,
+                l1_regularization_strength=l1,
+                l2_regularization_strength=l2),
+                model_dir=
+                ("C:/Users/schwinnter/Documents/models/sj/"+str(ind)))
+            w2_iq_regressor = tf.contrib.learn.DNNRegressor(
+                feature_columns=w2_feature_cols, hidden_units=[lay1],
+                optimizer=tf.train.FtrlOptimizer(learning_rate=.1,
+                l1_regularization_strength=l1,
+                l2_regularization_strength=l2),
+                model_dir=
+                ("C:/Users/schwinnter/Documents/models/iq/"+str(ind))) 
+            #Fit the models
+            w2_sj_regressor.fit(input_fn=lambda: w2_input_fun(w2_sj_train),
+                steps=5000)
+            w2_iq_regressor.fit(input_fn=lambda: w2_input_fun(w2_iq_train), 
+                steps=5000)
+            #Evalute loss with test
+            w2_sj_ev = w2_sj_regressor.evaluate(input_fn=lambda: 
+                w2_input_fun(w2_sj_test), steps=1)
+            sj_loss = w2_sj_ev["loss"]
+            
+            w2_iq_ev = w2_iq_regressor.evaluate(input_fn=lambda: 
+                w2_input_fun(w2_iq_test), steps=1)
+            iq_loss = w2_iq_ev["loss"]
+            #Update results DF and iterators
+            results.loc[ind,:] = [lay1,l1,l2,sj_loss,iq_loss]
+            ind += 1
+            #output progress
+            results.to_csv("test_results.csv")
 #End timer and display time it took
 end = time.time()
 print(end - start)
 
 #Export the results DF to CSV
 results.to_csv("test_results.csv")
+'''
+#%%
+#Read in test results
+results = pd.read_csv("test_results.csv")
+
+#Select the hyperparameters with the smallest loss
+sj_min = results[(results['sj_loss']<=(results['sj_loss'].min())+.01)]
+
+#%%
+results['sj_loss'].min()
 
 #%%
 #Create tensorflow graph
