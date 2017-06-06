@@ -26,9 +26,11 @@ iq = pd.read_csv("iq_features.csv")
 sj = pd.read_csv("sj_features.csv")
 w2_iq = pd.read_csv("w2_iq_features.csv")
 w2_sj = pd.read_csv("w2_sj_features.csv")
+w3_iq = pd.read_csv("w3_iq_features.csv")
+w3_sj = pd.read_csv("w3_sj_features.csv")
 
 #list of DF's
-cities = [sj,iq,w2_sj,w2_iq]
+cities = [sj,iq,w2_sj,w2_iq,w3_sj,w3_iq]
 
 #Remove R cols
 for i in cities:
@@ -43,7 +45,10 @@ features = [i for i in features]
 w2_features = w2_sj.drop(w2_sj.columns[(len(w2_sj.columns)-1)],
                          axis=1).drop(w2_sj.columns[0:4],axis=1)
 w2_features = [i for i in w2_features]
-    
+
+w3_features = w3_sj.drop(w3_sj.columns[(len(w3_sj.columns)-1)],
+                         axis=1).drop(w3_sj.columns[0:4],axis=1)
+w3_features = [i for i in w3_features]    
     
 #%%
 #Feature Normalization
@@ -55,6 +60,10 @@ for i in w2_features:
     w2_sj[i] = (w2_sj[i] - w2_sj[i].mean())/w2_sj[i].std(ddof=0)
     w2_iq[i] = (w2_iq[i] - w2_iq[i].mean())/w2_iq[i].std(ddof=0)
 
+for i in w3_features:
+    w3_sj[i] = (w3_sj[i] - w3_sj[i].mean())/w3_sj[i].std(ddof=0)
+    w3_iq[i] = (w3_iq[i] - w3_iq[i].mean())/w3_iq[i].std(ddof=0)
+
 #%%
 #Label normalization
 norm_vars = {}
@@ -62,6 +71,8 @@ for i in range(len(cities)):
     df = cities[i]
     if i < 2:
         pre = df.loc[1,"city"]
+    if i > 2:
+        pre = "w3_"+df.loc[1,"city"]
     else:
         pre = "w2_"+df.loc[1,"city"]
     mean = df["total_cases"].mean()
@@ -90,6 +101,10 @@ iq_test = iq.drop(iq_train.index)
 w2_sj_train,w2_sj_test=train_test_split(w2_sj,test_size=split)
 #w2 iq
 w2_iq_train,w2_iq_test=train_test_split(w2_iq,test_size=split)
+#w3 sj
+w3_sj_train,w3_sj_test=train_test_split(w3_sj,test_size=split)
+#w3 iq
+w3_iq_train,w3_iq_test=train_test_split(w3_iq,test_size=split)
 
 
 #%%
@@ -100,6 +115,10 @@ w1_feature_cols = [tf.contrib.layers.real_valued_column(k)
 #Now the same for the 2 week look back
 w2_feature_cols = [tf.contrib.layers.real_valued_column(k)
                   for k in w2_features]
+
+#Now the same for the 2 week look back
+w3_feature_cols = [tf.contrib.layers.real_valued_column(k)
+                  for k in w3_features]
 
 #Prediction value
 label = ["total_cases"]    
@@ -118,6 +137,13 @@ def w2_input_fun(data_set):
         for k in w2_features}
     w2_labels = tf.constant(data_set[label].values)
     return w2_feature_cols, w2_labels
+
+#same for w3
+def w3_input_fun(data_set):
+    w3_feature_cols = {k: tf.constant(data_set[k].values)
+        for k in w3_features}
+    w3_labels = tf.constant(data_set[label].values)
+    return w3_feature_cols, w3_labels
 #%%
 #Test for optimal hyperparameters
 '''
@@ -181,12 +207,20 @@ results = pd.read_csv("test_results.csv")
 
 #Select the hyperparameters with the smallest loss
 sj_min = results[(results['sj_loss']<=(results['sj_loss'].min())+.01)]
+iq_min = results[(results['iq_loss']<=(results['iq_loss'].min())+.01)]
 
-#%%
-results['sj_loss'].min()
+#Test lost
+test_results = [(results['sj_loss'].min()*norm_vars["w2_sj_std"])+
+                norm_vars["w2_sj_mean"],(results['iq_loss'].min()*
+                norm_vars["w2_iq_std"])+norm_vars["w2_iq_mean"]]
+
+#Print Results
+print("SJ Test Loss:" + str(test_results[0]))
+print("IQ Test Loss:" + str(test_results[1]))
 
 #%%
 #Create tensorflow graph
+'''
 sj_regressor = tf.contrib.learn.DNNRegressor(feature_columns=w1_feature_cols,
     hidden_units=[20,20], optimizer=tf.train.FtrlOptimizer(
     learning_rate=0.1,l1_regularization_strength=1.0,
@@ -200,51 +234,83 @@ iq_regressor = tf.contrib.learn.DNNRegressor(feature_columns=w1_feature_cols,
     l2_regularization_strength=1.0),
     model_dir=
     "C:/Users/schwi/Google Drive/Data Projects/Dengue Prediction/models/iq_dnn_reg")
+'''
 
 w2_sj_regressor = tf.contrib.learn.DNNRegressor(feature_columns=w2_feature_cols,
     hidden_units=[40,40], optimizer=tf.train.FtrlOptimizer(
-    learning_rate=0.1,l1_regularization_strength=1.0,
+    learning_rate=0.01,l1_regularization_strength=1.0,
     l2_regularization_strength=1.0),
     model_dir=
     "C:/Users/schwi/Google Drive/Data Projects/Dengue Prediction/models/w2_sj_dnn_reg")
 
 w2_iq_regressor = tf.contrib.learn.DNNRegressor(feature_columns=w2_feature_cols,
-    hidden_units=[40,40], optimizer=tf.train.FtrlOptimizer(
-    learning_rate=0.1,l1_regularization_strength=1.0,
+    hidden_units=[40,40,], optimizer=tf.train.FtrlOptimizer(
+    learning_rate=0.01,l1_regularization_strength=1.0,
     l2_regularization_strength=1.0),
     model_dir=
     "C:/Users/schwi/Google Drive/Data Projects/Dengue Prediction/models/w2_iq_dnn_reg")
+    
+w3_sj_regressor = tf.contrib.learn.DNNRegressor(feature_columns=w3_feature_cols,
+    hidden_units=[40,40], optimizer=tf.train.FtrlOptimizer(
+    learning_rate=0.01,l1_regularization_strength=1.0,
+    l2_regularization_strength=1.0),
+    model_dir=
+    "C:/Users/schwi/Google Drive/Data Projects/Dengue Prediction/models/w3_sj_dnn_reg")
+
+w3_iq_regressor = tf.contrib.learn.DNNRegressor(feature_columns=w3_feature_cols,
+    hidden_units=[40,40], optimizer=tf.train.FtrlOptimizer(
+    learning_rate=0.01,l1_regularization_strength=1.0,
+    l2_regularization_strength=1.0),
+    model_dir=
+    "C:/Users/schwi/Google Drive/Data Projects/Dengue Prediction/models/w3_iq_dnn_reg")
 #%%
+'''
 #Train the regressor NN
 sj_regressor.fit(input_fn=lambda: input_fun(sj_train), steps=5000)
 
 iq_regressor.fit(input_fn=lambda: input_fun(iq_train), steps=5000)
-
+'''
 #W2
 w2_sj_regressor.fit(input_fn=lambda: w2_input_fun(w2_sj_train), steps=5000)
 
 w2_iq_regressor.fit(input_fn=lambda: w2_input_fun(w2_iq_train), steps=5000)
 
+#w3
+w3_sj_regressor.fit(input_fn=lambda: w3_input_fun(w3_sj_train), steps=5000)
+
+w3_iq_regressor.fit(input_fn=lambda: w3_input_fun(w3_iq_train), steps=5000)
+
 #%%
+'''
 #Evaluate the models
 sj_ev = sj_regressor.evaluate(input_fn=lambda: input_fun(sj_test), steps=1)
 sj_loss_score = sj_ev["loss"]
 
 iq_ev = iq_regressor.evaluate(input_fn=lambda: input_fun(iq_test), steps=1)
 iq_loss_score = iq_ev["loss"]
-
+'''
 w2_sj_ev = w2_sj_regressor.evaluate(input_fn=lambda: w2_input_fun(w2_sj_test), steps=1)
 w2_sj_loss_score = w2_sj_ev["loss"]
 
 w2_iq_ev = w2_iq_regressor.evaluate(input_fn=lambda: w2_input_fun(w2_iq_test), steps=1)
 w2_iq_loss_score = w2_iq_ev["loss"]
 
+w3_sj_ev = w3_sj_regressor.evaluate(input_fn=lambda: w3_input_fun(w3_sj_test), steps=1)
+w3_sj_loss_score = w3_sj_ev["loss"]
 
+w3_iq_ev = w3_iq_regressor.evaluate(input_fn=lambda: w3_input_fun(w3_iq_test), steps=1)
+w3_iq_loss_score = w3_iq_ev["loss"]
+
+'''
 #See the test loss results
 print("SJ Loss: {0:f}".format(sj_loss_score))
 print("iq Loss: {0:f}".format(iq_loss_score))
+'''
 print("W2 SJ Loss: {0:f}".format(w2_sj_loss_score))
 print("W2 iq Loss: {0:f}".format(w2_iq_loss_score))
+
+print("w3 SJ Loss: {0:f}".format(w3_sj_loss_score))
+print("w3 iq Loss: {0:f}".format(w3_iq_loss_score))
 #%%
 #Predict from the model
 sj_predict = sj_regressor.predict(input_fn=lambda: input_fun(sj_test))
@@ -252,56 +318,3 @@ sj_predict = sj_regressor.predict(input_fn=lambda: input_fun(sj_test))
 sj_predictions = list(itertools.islice(sj_predict, 6))
 print ("Predictions: {}".format(str(sj_predictions)))
 
-
-#%%
-#Test for optimal hyperparameters
-
-#Track how long the loop takes
-start = time.time()
-#Create DF to store results of tests
-results = pd.DataFrame(columns=["lay1","learn_rate","l1","l2","sj_loss","iq_loss"])
-ind = 0
-
-#Testing loop
-for lay1 in range(1,41):
-    for learn_rate in pl.frange(0.1,1.0,0.1):
-        for l1 in pl.frange(0.0,1.0,0.1):
-            for l2 in pl.frange(0.0,1.0,0.1):                
-                #Insert hyperparameters
-                w2_sj_regressor = tf.contrib.learn.DNNRegressor(
-                    feature_columns=w2_feature_cols, hidden_units=[lay1],
-                    optimizer=tf.train.FtrlOptimizer(learning_rate=learn_rate,
-                    l1_regularization_strength=l1,
-                    l2_regularization_strength=l2),
-                    model_dir=
-                    ("C:/Users/schwi/Google Drive/Data Projects/Dengue " + 
-                     "Prediction/models/w2_sj_dnn_reg/"+str(ind)))
-                w2_iq_regressor = tf.contrib.learn.DNNRegressor(
-                    feature_columns=w2_feature_cols, hidden_units=[lay1],
-                    optimizer=tf.train.FtrlOptimizer(learning_rate=learn_rate,
-                    l1_regularization_strength=l1,
-                    l2_regularization_strength=l2),
-                    model_dir=
-                    ("C:/Users/schwi/Google Drive/Data Projects/Dengue " + 
-                     "Prediction/models/w2_iq_dnn_reg/"+str(ind))) 
-                #Fit the models
-                w2_sj_regressor.fit(input_fn=lambda: w2_input_fun(w2_sj_train),
-                    steps=5000)
-                w2_iq_regressor.fit(input_fn=lambda: w2_input_fun(w2_iq_train), 
-                    steps=5000)
-                #Evalute loss with test
-                w2_sj_ev = w2_sj_regressor.evaluate(input_fn=lambda: 
-                    w2_input_fun(w2_sj_test), steps=1)
-                sj_loss = w2_sj_ev["loss"]
-                
-                w2_iq_ev = w2_iq_regressor.evaluate(input_fn=lambda: 
-                    w2_input_fun(w2_iq_test), steps=1)
-                iq_loss = w2_iq_ev["loss"]
-                #Update results DF and iterators
-                results.loc[ind,:] = [lay1,learn_rate,l1,l2,sj_loss,iq_loss]
-                ind += 1
-                #Display progress
-                print(ind/48400)
-#End timer and display time it took
-end = time.time()
-print(end - start)

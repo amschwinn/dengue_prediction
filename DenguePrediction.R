@@ -103,12 +103,51 @@ rownames(w2_features) <- NULL
 w2_sj <- w2_features[w2_features$city=='sj',]
 w2_iq <- w2_features[w2_features$city=='iq',]
 
+##############
+## 3 weeks of features
+
+#prepare new columns and names
+feat_names <- colnames(features[,5:(ncol(features)-1)])
+feat_names <- c(feat_names,paste(feat_names,"2",sep="_"))
+feat_names <- paste(feat_names,"prev",sep="_")
+w3_features <- features
+w3_features[,c(feat_names)] <- NA
+
+#move total cases column to the end
+tot_index <- grep("total_cases", names(w3_features))
+w3_features <- w3_features[,c((1:ncol(w3_features))[-tot_index],tot_index)]
+
+#Add previous week's features
+for(i in 3:nrow(w3_features)){
+  if(w3_features$city[i]==w3_features$city[i-1] &
+     w3_features$city[i]==w3_features$city[i-2] &
+     ((as.Date(w3_features$week_start_date[i])
+       -as.Date(w3_features$week_start_date[i-1]))<10) &
+    ((as.Date(w3_features$week_start_date[i-1])
+      -as.Date(w3_features$week_start_date[i-2]))<10)){
+    w3_features[i,25:44] <- w3_features[i-1,5:24] 
+    w3_features[i,45:64] <- w3_features[i-2,5:24]
+  }
+}
+
+#remove rows with missing data
+w3_features           <- w3_features[complete.cases(w3_features),]
+rownames(w3_features) <- NULL
+
+
+#Break into 2 datasets by location
+w3_sj <- w3_features[w3_features$city=='sj',]
+w3_iq <- w3_features[w3_features$city=='iq',]
+
 
 # Export working DF's to use in Tensorflow in Python
 write.csv(iq, "iq_features.csv")
 write.csv(sj, "sj_features.csv")
 write.csv(w2_iq, "w2_iq_features.csv")
 write.csv(w2_sj, "w2_sj_features.csv")
+write.csv(w3_iq, "w3_iq_features.csv")
+write.csv(w3_sj, "w3_sj_features.csv")
+
 
 
 
@@ -207,4 +246,6 @@ w2_features$total_cases <- labels$total_cases
 #remove rows with missing data
 w2_features           <- w2_features[complete.cases(w2_features),]
 rownames(w2_features) <- NULL
+
+
 
