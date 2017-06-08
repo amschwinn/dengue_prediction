@@ -14,6 +14,7 @@ import numpy as np
 import keras.layers as L
 import keras.models as M
 import itertools as I
+from keras.preprocessing import sequence as S
 
 
 #set our working directory
@@ -21,11 +22,19 @@ import itertools as I
 
 #%%
 #Load in existing DFs exported as CSV from R
-iq = pd.read_csv("iq_features.csv")
-sj = pd.read_csv("sj_features.csv")
+
+#Standard bucket datasets
+iq = pd.read_csv("Data\iq_features.csv")
+sj = pd.read_csv("Data\sj_features.csv")
+#Non-bucket datasets
+iq_nb = pd.read_csv("Data\iq_features.csv")
+sj_nb = pd.read_csv("Data\sj_features.csv")
+#Submission datasets
+iq_sub = pd.read_csv("Data\iq_features.csv")
+sj_sub = pd.read_csv("Data\sj_features.csv")
 
 #list of DF's
-cities = [sj,iq]
+cities = [sj,iq,sj_nb,iq_nb,sj_sub,iq_sub]
 
 #Remove R cols
 for i in cities:
@@ -39,12 +48,13 @@ features = [i for i in features]
     
 #%%
 #Feature Normalization
-for i in features:
-    sj[i] = (sj[i] - sj[i].mean())/sj[i].std(ddof=0)
-    iq[i] = (iq[i] - iq[i].mean())/iq[i].std(ddof=0) 
+for j in cities:
+    for i in features:
+        j[i] = (j[i] - j[i].mean())/j[i].std(ddof=0)
+
 
 #%%
-#Label normalization
+#Label normalization and dict of normalization variables
 norm_vars = {}
 for i in range(len(cities)):
     df = cities[i]
@@ -60,7 +70,7 @@ for i in range(len(cities)):
 
 feed = {}
 #Bucketing and padding
-for i in range(len(cities)):
+for i in range(len(cities[:2])):
     df = cities[i]
     pre = df.loc[1,"city"]
     #Find the largets bucket size
@@ -89,6 +99,19 @@ for i in range(len(cities)):
     feed[(pre+"_in")] = np.delete(in_arr,0,0)
     feed[(pre+"_out")] = np.delete(out_arr,0,0)
     norm_vars[(pre+"_big_batch")] = big_batch
+    
+#For non-bucket sets
+x = 0
+for i in cities[2:]:
+    pre = i.loc[1,"city"]
+    #Don't need out column for submission sets
+    if x < 2:
+        pre = pre + '_nb'
+        feed[(pre+"_out")] = i.as_matrix(['total_cases'])
+    else:
+        pre = pre + '_sub'
+    feed[(pre+"_in")] = i.as_matrix(features)
+    x += 1
 
 #%%
 #split into training and test
@@ -99,13 +122,15 @@ feed_split = {}
 train_split = {}
 #iterate through in and out arrays
 for name, array in feed.items():
-    #Get single training split for each city
-    if name[:2] not in train_split:
-        train_split[name[:2]] = np.random.choice(range(len(array)),
-                    round(len(array)*split),replace=False)
-    #Split training and test sets
-    feed_split[(str(name)+"_train")] = array[train_split[name[:2]],:,:]
-    feed_split[(str(name)+"_test")] = np.delete(array,train_split[name[:2]],0)
+    #Bucket sets split
+    if ('sub' not in name) & ('nb' not in name):
+        #Get single training split for each city
+        if name[:2] not in train_split:
+            train_split[name[:2]] = np.random.choice(range(len(array)),
+                        round(len(array)*split),replace=False)
+        #Split training and test sets
+        feed_split[(str(name)+"_train")] = array[train_split[name[:2]],:,:]
+        feed_split[(str(name)+"_test")] = np.delete(array,train_split[name[:2]],0)
 
 #%%
 #Build LSTM Models
@@ -138,6 +163,13 @@ models['sj_lstm'].fit(feed_split['sj_in_train'], feed_split['sj_out_train'],
 models['iq_lstm'].fit(feed_split['iq_in_train'], feed_split['iq_out_train'],
     epochs=15,validation_data=(feed_split['iq_in_test'], 
     feed_split['iq_out_test']))
+
+#%%
+#Make predictions of submission dataset
+test_feed = S.pad_sequences(feed['sj_sub_in'], maxlen=norm_vars['sj_big_batch'])
+#%%
+feed['sj_predictions'] = models['sj_lstm'].predict(test_feed)
+
 
 #%%
 #Evaluate the models

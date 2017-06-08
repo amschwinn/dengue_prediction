@@ -5,15 +5,7 @@ f##############################################
 #outbreaks in Puerto Rico and Peru
 ##############################################
 #install.packages('rstudioapi')
-#install.packages('kerasR')
-#install.packages('neuralnet')
 library(rstudioapi)
-library(kerasR)
-library(neuralnet)
-
-#Before moving forward, please open, read, and run
-#the TensorFlow_R_Integration file
-library(tensorflow)
 
 #Set working directory
 setwd(dirname(rstudioapi::getActiveDocumentContext()$path))
@@ -30,6 +22,7 @@ features$total_cases    <- labels$total_cases
 #Create feature DF with 2 weeks features
 w2_features <- features
 
+#backup before removing NA's
 features2 <- features
 
 #remove rows with missing data
@@ -38,8 +31,8 @@ rownames(features)    <- NULL
 #looks like we lose about 115 observations in the original feature set
 
 #Break into 2 datasets by location
-sj <- features[features$city=='sj',]
-iq <- features[features$city=='iq',]
+sj      <- features[features$city=='sj',]
+iq      <- features[features$city=='iq',]
 
 #List of city DFs so don't have to duplicate steps
 cities <- list(sj,iq)
@@ -141,111 +134,46 @@ w3_iq <- w3_features[w3_features$city=='iq',]
 
 
 # Export working DF's to use in Tensorflow in Python
-write.csv(iq, "iq_features.csv")
-write.csv(sj, "sj_features.csv")
-write.csv(w2_iq, "w2_iq_features.csv")
-write.csv(w2_sj, "w2_sj_features.csv")
-write.csv(w3_iq, "w3_iq_features.csv")
-write.csv(w3_sj, "w3_sj_features.csv")
-
-
-
-
-
-######################
-## Modelinng
-
-#Normalize the data
-for(i in 1:length(cities)){
-  df      <- cities[[i]]
-  df_max  <- apply(df[,5:(ncol(df)-1)],2,max)
-  df_min  <- apply(df[,5:(ncol(df)-1)],2,min)
-  df_norm <- as.data.frame(cbind(df[,1:4],scale(df[,5:(ncol(df)-1)], center=df_min,
-                                        scale=df_max-df_min),df[,ncol(df)]))
-  names(df_norm) <- names(df)
-  if(i==1){
-    sj_norm <- df_norm
-  }
-  if(i==2){
-    iq_norm <- df_norm
-  }
-}
-
-#Split batches into train and test
-set.seed(1991)
-split_size  <- .75
-sj_index    <- sample(seq_len(max(sj$batch)), size=(split_size*max(sj$batch)))
-iq_index    <- sample(seq_len(max(iq$batch)), size=(split_size*max(iq$batch)))
-sj_train    <- sj_norm[sj$batch %in% sj_index,-c(1:4)]
-sj_test     <- sj_norm[!(sj$batch %in% sj_index),-c(1:4)]
-iq_train    <- iq_norm[iq$batch %in% iq_index,-c(1:4)]
-iq_test     <- iq_norm[!(iq$batch %in% iq_index),-c(1:4)]
-
-###############
-##Standard Neural Net
-#Uses the following tutorial:
-#https://www.r-bloggers.com/fitting-a-neural-network-in-r-neuralnet-package/
-
-#Create target equation
-feat_names  <- names(sj_train[1:(ncol(sj_train)-2)])
-equation    <- as.formula(paste("total_cases~",paste(feat_names, collapse="+")))
-
-#Neural net regression
-sj_nn <- neuralnet(equation,data=sj_train[1:(ncol(sj_train)-1)],
-                hidden=c(12,7,4,3),linear.output=TRUE)
-iq_nn <- neuralnet(equation,data=iq_train[1:(ncol(sj_train)-1)],
-                   hidden=c(12,7,4,3),linear.output=TRUE)
-
-#Predict from fitted NN model
-pr.sj_nn      <- compute(sj_nn,sj_test[,1:(ncol(sj_test)-2)])
-sj_nn_result  <- pr.sj_nn$net.result*(max(sj$total_cases)
-                                       -min(sj$total_cases))+min(sj$total_cases)
-sj_test_pred  <- sj_test$total_cases*(max(sj$total_cases)
-                                      -min(sj$total_cases))+min(sj$total_cases)
-
-#MSE of NN model
-sum((sj_test_pred-sj_nn_result)^2)/nrow(sj_test)
+write.csv(iq, "Data/iq_features.csv")
+write.csv(sj, "Data/sj_features.csv")
+write.csv(w2_iq, "Data/w2_iq_features.csv")
+write.csv(w2_sj, "Data/w2_sj_features.csv")
+write.csv(w3_iq, "Data/w3_iq_features.csv")
+write.csv(w3_sj, "Data/w3_sj_features.csv")
 
 
 ##############
-## Tensorflow linear model w/ deep learning
+## Prepare Prediction Set
 
-#Create feature columns for the model
-feat_col <- names(features[,5:ncol(features)])
+# Do not want to remove any observations since
+# competition is based on total mean loss
+# so will have to predict on every single observation.
+# Instead of exluding NA's, will fill with feature avg.
+# Will also make single batch feature sets with means
+# instead of omitting NAs to see if it trains the model
+# any better than splitting into buckets
 
-for(i in 1:length(feat_col)){
-  assign(feat_col[i],tf$contrib$layers$real_valued_column(feat_col[i]))
-}
+#Split by cities
+sj_nb   <- features2[features2$city=='sj',]
+iq_nb   <- features2[features2$city=='iq',]
+sj_sub  <- submission[submission$city=='sj',]
+iq_sub  <- submission[submission$city=='iq',]
 
+#List to iterate through
+tot_obs   <- list(sj_nb,iq_nb,sj_sub,iq_sub)
+tot_names <- list('sj_nb','iq_nb','sj_sub','iq_sub')
 
-
-##############
-## Further development
-#Create feature DF with 2 weeks features
-w2_features <- features
-
-#prepare new columns and names
-names <- colnames(features[,5:ncol(features)-2])
-for(i in 1:length(names)){
-  names[i] <- paste(names[i],'prev',sep="_")
-}
-w2_features[,c(names)] <- NA
-
-#Add previous week's features
-for(i in 2:nrow(w2_features)){
-  if(w2_features$city[i]==w2_features$city[i-1] &
-     ((as.Date(w2_features$week_start_date[i])
-       -as.Date(w2_features$week_start_date[i-1]))<10)){
-    w2_features[i,25:44] <- w2_features[i-1,5:24]   
+#Replace NA vals with col means
+for(j in 1:length(tot_obs)){
+  df  <- tot_obs[[j]]
+  #Iterate through cols and use mean for NAs
+  for(i in 1:ncol(df)){
+    df[is.na(df[,i]), i] <- mean(df[,i], na.rm = TRUE)
   }
+  #Rewrite back to list objects
+  tot_obs[[j]] <- df
+  #Write DF to CSV to read into Python model
+  write.csv(df,paste("Data/",paste(tot_names[[j]],".csv",sep=""),sep=""))
 }
-
-#Combine features and labels
-w2_features$total_cases <- labels$total_cases
-
-#remove rows with missing data
-w2_features           <- w2_features[complete.cases(w2_features),]
-rownames(w2_features) <- NULL
-
 
 
