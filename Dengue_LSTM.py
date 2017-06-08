@@ -34,7 +34,7 @@ for i in cities:
 #%%
 #List of feature columns
 features = sj.drop(sj.columns[(len(sj.columns)-2):(len(sj.columns))],
-                   axis=1).drop(sj.columns[0:4],axis=1)
+                axis=1).drop(sj.columns[0:2],axis=1).drop(sj.columns[3],axis=1)
 features = [i for i in features]
     
 #%%
@@ -56,62 +56,98 @@ for i in range(len(cities)):
     norm_vars[(pre+"_std")] = std
 
 #%%
-#Prepare for bucketing and padding
+#Prepare data in correct format for Keras feed
 
-#Find the largets bucket size
-big_batch = np.zeros(shape=(0,0))
-for i in I.groupby(sj['batch']):
-    big_batch = np.append(big_batch,len(list(i[1])))    
-big_batch = int(big_batch.max())
-#Initialize arrays to fill
-in_arr = np.zeros(shape=(big_batch,len(features)))
-out_arr = np.zeros(shape=(big_batch,1))
-#Iterate through the each of the buckets
-for i in sj['batch'].unique():
-    in_arr2 = sj.loc[(sj['batch']==i)].as_matrix(features) 
-    in_arr2 = np.concatenate((in_arr2, np.zeros(shape=(big_batch-len(in_arr2),
-        len(features)))), axis=0)
-    out_arr2 = sj.loc[(sj['batch']==i)].as_matrix(['total_cases']) 
-    out_arr2 = np.concatenate((out_arr2, np.zeros(shape=
-        (big_batch-len(out_arr2),1))), axis=0)
-    if i==1:
-        in_arr = np.append([in_arr],[in_arr2],axis=0)
-        out_arr = np.append([out_arr],[out_arr2],axis=0)
-    else:
-        in_arr = np.append(in_arr,[in_arr2],axis=0)
-        out_arr = np.append(out_arr,[out_arr2],axis=0)
-#Remove initial buffer arrary
-in_arr = np.delete(in_arr,0,0)
-out_arr = np.delete(out_arr,0,0)
-
-#%%
-sj_in = in_arr
-sj_out = out_arr
+feed = {}
+#Bucketing and padding
+for i in range(len(cities)):
+    df = cities[i]
+    pre = df.loc[1,"city"]
+    #Find the largets bucket size
+    big_batch = np.zeros(shape=(0,0))
+    for j in I.groupby(df['batch']):
+        big_batch = np.append(big_batch,len(list(j[1])))    
+    big_batch = int(big_batch.max())
+    #Initialize arrays to fill
+    in_arr = np.zeros(shape=(big_batch,len(features)))
+    out_arr = np.zeros(shape=(big_batch,1))
+    #Iterate through the each of the buckets
+    for k in df['batch'].unique():
+        in_arr2 = df.loc[(df['batch']==k)].as_matrix(features) 
+        in_arr2 = np.concatenate((in_arr2, np.zeros(shape=
+            (big_batch-len(in_arr2),len(features)))), axis=0)
+        out_arr2 = df.loc[(df['batch']==k)].as_matrix(['total_cases']) 
+        out_arr2 = np.concatenate((out_arr2, np.zeros(shape=
+            (big_batch-len(out_arr2),1))), axis=0)
+        if k==1:
+            in_arr = np.append([in_arr],[in_arr2],axis=0)
+            out_arr = np.append([out_arr],[out_arr2],axis=0)
+        else:
+            in_arr = np.append(in_arr,[in_arr2],axis=0)
+            out_arr = np.append(out_arr,[out_arr2],axis=0)
+    #Remove initial buffer arrary
+    feed[(pre+"_in")] = np.delete(in_arr,0,0)
+    feed[(pre+"_out")] = np.delete(out_arr,0,0)
+    norm_vars[(pre+"_big_batch")] = big_batch
 
 #%%
 #split into training and test
 np.random.seed(1991)
-#Split original by batch
+#Specify % train/test split
 split = .75
-#sj
-train_split = np.random.choice(range(len(sj_in)),
-            round(len(sj_in)*split),replace=False)
-sj_in_train = sj_in[train_split,:,:]
-sj_out_train = sj_out[train_split,:,:]
-sj_in_test = np.delete(sj_in,train_split,0)
-sj_out_test = np.delete(sj_out,train_split,0)
+feed_split = {}
+train_split = {}
+#iterate through in and out arrays
+for name, array in feed.items():
+    #Get single training split for each city
+    if name[:2] not in train_split:
+        train_split[name[:2]] = np.random.choice(range(len(array)),
+                    round(len(array)*split),replace=False)
+    #Split training and test sets
+    feed_split[(str(name)+"_train")] = array[train_split[name[:2]],:,:]
+    feed_split[(str(name)+"_test")] = np.delete(array,train_split[name[:2]],0)
 
 #%%
-sj_in = L.Input(shape=(big_batch,len(features)))
+#Build LSTM Models
+models = {}
 
-sj_out = L.LSTM(1, return_sequences=True)(sj_in)
+#Data Input feed
+models['sj_in'] = L.Input(shape=(norm_vars['sj_big_batch'],len(features)))
+models['iq_in'] = L.Input(shape=(norm_vars['iq_big_batch'],len(features)))
 
-sj_lstm = M.Model(input=sj_in,output=sj_out)
+#Output structure
+models['sj_out'] = L.LSTM(1, return_sequences=True)(models['sj_in'])
+models['iq_out'] = L.LSTM(1, return_sequences=True)(models['iq_in'])
 
-sj_lstm.compile('sgd', 'mean_squared_error')
+#Create full LSTM model
+models['sj_lstm'] = M.Model(input=models['sj_in'],output=models['sj_out'])
+models['iq_lstm'] = M.Model(input=models['iq_in'],output=models['iq_out'])
 
-sj_lstm.fit(sj_in_train, sj_out_train,epochs=15,
-          validation_data=(sj_in_test, sj_out_test))
+#%%
+#Train LSM Models
 
-#score, acc = sj_lstm.evaluate(sj_in_test, sj_out_test)
+#Specify hyperparameters
+models['sj_lstm'].compile('sgd', 'mean_squared_error')
+models['iq_lstm'].compile('sgd', 'mean_squared_error')
 
+#Fit with training set, validate with test
+models['sj_lstm'].fit(feed_split['sj_in_train'], feed_split['sj_out_train'],
+    epochs=15,validation_data=(feed_split['sj_in_test'], 
+    feed_split['sj_out_test']))
+
+models['iq_lstm'].fit(feed_split['iq_in_train'], feed_split['iq_out_train'],
+    epochs=15,validation_data=(feed_split['iq_in_test'], 
+    feed_split['iq_out_test']))
+
+#%%
+#Evaluate the models
+sj_score, sj_acc = models['sj_lstm'].evaluate(feed_split['sj_in_test'],
+                         feed_split['sj_out_test'])
+
+iq_score, iq_acc = models['iq_lstm'].evaluate(feed_split['iq_in_test'],
+                         feed_split['iq_out_test'])
+
+print("sj_score:"+str(sj_score))
+print("sj_acc:"+str(sj_acc))
+print("iq_score:"+str(iq_score))
+print("iq_acc:"+str(iq_acc))
