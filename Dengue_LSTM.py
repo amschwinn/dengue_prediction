@@ -14,6 +14,7 @@ import numpy as np
 import keras.layers as L
 import keras.models as M
 import itertools as I
+import math as ma
 from keras.preprocessing import sequence as S
 
 
@@ -27,14 +28,16 @@ from keras.preprocessing import sequence as S
 iq = pd.read_csv("Data\iq_features.csv")
 sj = pd.read_csv("Data\sj_features.csv")
 #Non-bucket datasets
-iq_nb = pd.read_csv("Data\iq_features.csv")
-sj_nb = pd.read_csv("Data\sj_features.csv")
+iq_nb = pd.read_csv("Data\iq_nb.csv")
+sj_nb = pd.read_csv("Data\sj_nb.csv")
 #Submission datasets
-iq_sub = pd.read_csv("Data\iq_features.csv")
-sj_sub = pd.read_csv("Data\sj_features.csv")
+iq_sub = pd.read_csv("Data\iq_sub.csv")
+sj_sub = pd.read_csv("Data\sj_sub.csv")
 
 #list of DF's
 cities = [sj,iq,sj_nb,iq_nb,sj_sub,iq_sub]
+submiss = [sj_sub,iq_sub]
+
 
 #Remove R cols
 for i in cities:
@@ -52,11 +55,10 @@ for j in cities:
     for i in features:
         j[i] = (j[i] - j[i].mean())/j[i].std(ddof=0)
 
-
 #%%
 #Label normalization and dict of normalization variables
 norm_vars = {}
-for i in range(len(cities)):
+for i in range(2):
     df = cities[i]
     pre = df.loc[1,"city"]
     mean = df["total_cases"].mean()
@@ -165,13 +167,6 @@ models['iq_lstm'].fit(feed_split['iq_in_train'], feed_split['iq_out_train'],
     feed_split['iq_out_test']))
 
 #%%
-#Make predictions of submission dataset
-test_feed = S.pad_sequences(feed['sj_sub_in'], maxlen=norm_vars['sj_big_batch'])
-#%%
-feed['sj_predictions'] = models['sj_lstm'].predict(test_feed)
-
-
-#%%
 #Evaluate the models
 sj_score, sj_acc = models['sj_lstm'].evaluate(feed_split['sj_in_test'],
                          feed_split['sj_out_test'])
@@ -183,3 +178,63 @@ print("sj_score:"+str(sj_score))
 print("sj_acc:"+str(sj_acc))
 print("iq_score:"+str(iq_score))
 print("iq_acc:"+str(iq_acc))
+#%%
+#Make predictions of submission dataset
+
+for i in ['sj','iq']:
+    #Prepare submission feed to send through model
+    #Must be in proper array shape
+    feed_split[(i+'_sub_in')] = np.zeros(shape=(norm_vars[(i+'_big_batch')],
+        feed[(i+'_sub_in')].shape[1]))
+    
+    #Split the full array in subarrays of the size of buckets
+    for low in range(0,len(feed[(i+'_sub_in')]),norm_vars[(i+'_big_batch')]):
+        #Pad final array to correct shape
+        if low + norm_vars[(i+'_big_batch')] > len(feed[(i+'_sub_in')]):
+            high = len(feed[(i+'_sub_in')])
+            feed_split[(i+'_sub_in')] = np.append(feed_split[(i+'_sub_in')],
+                [np.append(feed[(i+'_sub_in')][low:high,:],
+                np.zeros(shape=((norm_vars[(i+'_big_batch')]-(high-low)),
+                feed[(i+'_sub_in')].shape[1])),axis=0)],axis=0)
+        #Need to alter format during first iteration
+        elif low < 17:
+            high = low + norm_vars[(i+'_big_batch')]
+            feed_split[(i+'_sub_in')] = np.append([feed_split[(i+'_sub_in')]],
+                [feed[(i+'_sub_in')][low:high,:]],axis=0)    
+        #For arrays that don't need padding
+        else:
+            high = low + norm_vars[(i+'_big_batch')]
+            feed_split[(i+'_sub_in')] = np.append(feed_split[(i+'_sub_in')],
+                [feed[(i+'_sub_in')][low:high,:]],axis=0)
+    #Remove first buffer array
+    feed_split[(i+'_sub_in')] = np.delete(feed_split[(i+'_sub_in')],0,0)
+    
+    #Predict using the model
+    feed[(i+'_predictions')] = models[(i+'_lstm')].predict(feed_split[(i+
+        '_sub_in')])
+    
+    #Flatten from 3D array to 2D Dataframe
+    feed[(i+'_predictions')] = pd.Panel(feed[(i+'_predictions')]).swapaxes(0,
+        2).to_frame().reset_index().iloc[:len(feed[(i+'_sub_in')]),2]
+    
+    #De-normalize the predictions
+    feed[(i+'_predictions')] = round((feed[(i+'_predictions')]*norm_vars[(
+        i+'_std')])+norm_vars[(i+'_mean')])
+    #Specify col name
+    #feed[(i+'_predictions')] = feed[(i+'_predictions')].rename('total_cases')
+    feed[(i+'_predictions')] = feed[(i+'_predictions')].to_frame('total_cases')
+#%%
+#Combine to proper output
+for i in range(len(submiss)):
+    submiss[i] = pd.merge(submiss[i].loc[:,['city','year','weekofyear']],
+           feed[('sj_predictions')],left_index=True,right_index=True)
+    
+#Combine cities
+tot_sub = pd.concat(submiss)
+
+#Total cases as int
+tot_sub['total_cases'] = tot_sub['total_cases'].apply(np.int64)
+
+#Output submission to CSV
+tot_sub.to_csv("Data/LSTM_Bucket_Submission_1.csv",index=False)
+
