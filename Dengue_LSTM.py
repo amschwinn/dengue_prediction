@@ -13,6 +13,7 @@ import os
 import numpy as np
 import keras.layers as L
 import keras.models as M
+import keras.optimizers as O
 import itertools as I
 import math as ma
 from keras.preprocessing import sequence as S
@@ -36,8 +37,6 @@ sj_sub = pd.read_csv("Data\sj_sub.csv")
 
 #list of DF's
 cities = [sj,iq,sj_nb,iq_nb,sj_sub,iq_sub]
-submiss = [sj_sub,iq_sub]
-
 
 #Remove R cols
 for i in cities:
@@ -70,50 +69,54 @@ for i in range(2):
 #%%
 #Prepare data in correct format for Keras feed
 
+#Specify size of batch sizes
+norm_vars['sj_big_batch'] = 10
+norm_vars['iq_big_batch'] = 10
+
 feed = {}
 #Bucketing and padding
-for i in range(len(cities[:2])):
+for i in range(len(cities[2:4])):
     df = cities[i]
     pre = df.loc[1,"city"]
-    #Find the largets bucket size
-    big_batch = np.zeros(shape=(0,0))
-    for j in I.groupby(df['batch']):
-        big_batch = np.append(big_batch,len(list(j[1])))    
-    big_batch = int(big_batch.max())
     #Initialize arrays to fill
-    in_arr = np.zeros(shape=(big_batch,len(features)))
-    out_arr = np.zeros(shape=(big_batch,1))
-    #Iterate through the each of the buckets
-    for k in df['batch'].unique():
-        in_arr2 = df.loc[(df['batch']==k)].as_matrix(features) 
-        in_arr2 = np.concatenate((in_arr2, np.zeros(shape=
-            (big_batch-len(in_arr2),len(features)))), axis=0)
-        out_arr2 = df.loc[(df['batch']==k)].as_matrix(['total_cases']) 
-        out_arr2 = np.concatenate((out_arr2, np.zeros(shape=
-            (big_batch-len(out_arr2),1))), axis=0)
-        if k==1:
-            in_arr = np.append([in_arr],[in_arr2],axis=0)
-            out_arr = np.append([out_arr],[out_arr2],axis=0)
+    feed[(pre+'_in')] = np.zeros(shape=(norm_vars[(pre+'_big_batch')],
+    len(features)))
+    feed[(pre+'_out')] = np.zeros(shape=(norm_vars[(pre+'_big_batch')],1))
+    #Split the full array in subarrays of the size of buckets
+    for low in range(0,len(df)):
+        #Pad final array to correct shape
+        if low + norm_vars[(pre+'_big_batch')] > len(df):
+            high = len(df)
+            feed[(pre+'_in')] = np.append(feed[(pre+'_in')],
+                [np.append(df.loc[low:high,features].as_matrix(),
+                np.zeros(shape=((norm_vars[(pre+'_big_batch')]-(high-low)),
+                len(features))),axis=0)],axis=0)
+            feed[(pre+'_out')] = np.append(feed[(pre+'_out')],
+                [np.append(df.loc[low:high,['total_cases']].as_matrix(),
+                np.zeros(shape=((norm_vars[(pre+'_big_batch')]-(high-low)),1)),
+                axis=0)],axis=0)
+        #Need to alter format during first iteration
+        elif low == 0:
+            high = low + norm_vars[(pre+'_big_batch')]-1
+            feed[(pre+'_in')] = np.append([feed[(pre+'_in')]],
+                [df.loc[low:high,features].as_matrix()],axis=0) 
+            feed[(pre+'_out')] = np.append([feed[(pre+'_out')]],
+                [df.loc[low:high,['total_cases']].as_matrix()],axis=0)
+        #For arrays that don't need padding
         else:
-            in_arr = np.append(in_arr,[in_arr2],axis=0)
-            out_arr = np.append(out_arr,[out_arr2],axis=0)
-    #Remove initial buffer arrary
-    feed[(pre+"_in")] = np.delete(in_arr,0,0)
-    feed[(pre+"_out")] = np.delete(out_arr,0,0)
-    norm_vars[(pre+"_big_batch")] = big_batch
+            high = low + norm_vars[(pre+'_big_batch')]-1
+            feed[(pre+'_in')] = np.append(feed[(pre+'_in')],
+                [df.loc[low:high,features].as_matrix()],axis=0)
+            feed[(pre+'_out')] = np.append(feed[(pre+'_out')],
+                [df.loc[low:high,['total_cases']].as_matrix()],axis=0)
+    #Remove first array that was used as buffer
+    feed[(pre+'_in')] = np.delete(feed[(pre+'_in')],0,0)
+    feed[(pre+'_out')] = np.delete(feed[(pre+'_out')],0,0)
     
 #For non-bucket sets
-x = 0
-for i in cities[2:]:
+for i in cities[4:]:
     pre = i.loc[1,"city"]
-    #Don't need out column for submission sets
-    if x < 2:
-        pre = pre + '_nb'
-        feed[(pre+"_out")] = i.as_matrix(['total_cases'])
-    else:
-        pre = pre + '_sub'
-    feed[(pre+"_in")] = i.as_matrix(features)
-    x += 1
+    feed[(pre+"_sub_in")] = i.as_matrix(features)
 
 #%%
 #split into training and test
@@ -125,7 +128,7 @@ train_split = {}
 #iterate through in and out arrays
 for name, array in feed.items():
     #Bucket sets split
-    if ('sub' not in name) & ('nb' not in name):
+    if ('sub' not in name):
         #Get single training split for each city
         if name[:2] not in train_split:
             train_split[name[:2]] = np.random.choice(range(len(array)),
@@ -153,31 +156,31 @@ models['iq_lstm'] = M.Model(input=models['iq_in'],output=models['iq_out'])
 #%%
 #Train LSM Models
 
-#Specify hyperparameters
-models['sj_lstm'].compile('sgd', 'mean_squared_error')
-models['iq_lstm'].compile('sgd', 'mean_squared_error')
+#Optimizer
+rms = O.RMSprop()
+
+#Add hyperparameters
+models['sj_lstm'].compile(rms, 'mean_squared_error')
+models['iq_lstm'].compile(rms, 'mean_squared_error')
 
 #Fit with training set, validate with test
 models['sj_lstm'].fit(feed_split['sj_in_train'], feed_split['sj_out_train'],
-    epochs=15,validation_data=(feed_split['sj_in_test'], 
+    epochs=100,validation_data=(feed_split['sj_in_test'], 
     feed_split['sj_out_test']))
 
 models['iq_lstm'].fit(feed_split['iq_in_train'], feed_split['iq_out_train'],
-    epochs=15,validation_data=(feed_split['iq_in_test'], 
+    epochs=100,validation_data=(feed_split['iq_in_test'], 
     feed_split['iq_out_test']))
 
 #%%
 #Evaluate the models
-sj_score, sj_acc = models['sj_lstm'].evaluate(feed_split['sj_in_test'],
+sj_score = models['sj_lstm'].evaluate(feed_split['sj_in_test'],
                          feed_split['sj_out_test'])
-
-iq_score, iq_acc = models['iq_lstm'].evaluate(feed_split['iq_in_test'],
+iq_score = models['iq_lstm'].evaluate(feed_split['iq_in_test'],
                          feed_split['iq_out_test'])
 
 print("sj_score:"+str(sj_score))
-print("sj_acc:"+str(sj_acc))
 print("iq_score:"+str(iq_score))
-print("iq_acc:"+str(iq_acc))
 #%%
 #Make predictions of submission dataset
 
@@ -197,7 +200,7 @@ for i in ['sj','iq']:
                 np.zeros(shape=((norm_vars[(i+'_big_batch')]-(high-low)),
                 feed[(i+'_sub_in')].shape[1])),axis=0)],axis=0)
         #Need to alter format during first iteration
-        elif low < 17:
+        elif low < norm_vars[(i+'_big_batch')]:
             high = low + norm_vars[(i+'_big_batch')]
             feed_split[(i+'_sub_in')] = np.append([feed_split[(i+'_sub_in')]],
                 [feed[(i+'_sub_in')][low:high,:]],axis=0)    
@@ -223,11 +226,15 @@ for i in ['sj','iq']:
     #Specify col name
     #feed[(i+'_predictions')] = feed[(i+'_predictions')].rename('total_cases')
     feed[(i+'_predictions')] = feed[(i+'_predictions')].to_frame('total_cases')
+    
 #%%
 #Combine to proper output
+submiss = [pd.read_csv("Data\sj_sub.csv"),pd.read_csv("Data\iq_sub.csv")]
+
 for i in range(len(submiss)):
+    pre = submiss[i].loc[0,'city']
     submiss[i] = pd.merge(submiss[i].loc[:,['city','year','weekofyear']],
-           feed[('sj_predictions')],left_index=True,right_index=True)
+           feed[(pre+'_predictions')],left_index=True,right_index=True)
     
 #Combine cities
 tot_sub = pd.concat(submiss)
@@ -236,5 +243,5 @@ tot_sub = pd.concat(submiss)
 tot_sub['total_cases'] = tot_sub['total_cases'].apply(np.int64)
 
 #Output submission to CSV
-tot_sub.to_csv("Data/LSTM_Bucket_Submission_1.csv",index=False)
+tot_sub.to_csv("Data/LSTM_NonOmit_Submission_2.csv",index=False)
 
