@@ -1,4 +1,4 @@
-# DengAI: Predicting Disease Spread
+# DengAue Prediction with Machine Learning
 Using TensorFlow Wide & Deep Models and Keras LSTM Models to Predict Mosquito-Born Dengue Outbreaks in San Juan, Puerto Rico and Iquitos, Peru based on climate and environmental data.
 
 References
